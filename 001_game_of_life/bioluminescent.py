@@ -125,8 +125,8 @@ def count_alive(t:ti.f32):
                 bit = 1
             alive[x,y] = bit
             plankton_dyes[x, y][0] = (bit * 4 * osc * attn + just_born * 0.1 * osc) * osc2 * osc3
-            plankton_dyes[x, y][1] = (bit * 10 * osc * attn+ just_born * 0.5 * osc) * osc2 * osc3
-            plankton_dyes[x, y][2] = (bit * 4 * osc * attn + just_born * 0.1 * osc) * osc2 * osc3
+            plankton_dyes[x, y][1] = (bit * 6 * osc * attn+ just_born * 0.5 * osc) * osc2 * osc3
+            plankton_dyes[x, y][2] = (bit * 10 * osc * attn + just_born * 0.1 * osc) * osc2 * osc3
 
             # pass
             # check_alive(x,y,alive,alive_copy)
