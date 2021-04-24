@@ -19,46 +19,92 @@ clen = 128
 nx = res // cwid
 ny = res // clen
 flow_field = None
+ff_shape = (nx, ny, 10)
 
 scalar_off = 1
 
 def init_flowfield():
     global flow_field
     flow_field = np.zeros(
-        shape=(cwid, clen, 8),
+        shape=ff_shape,
         dtype=np.float32
     )
-    for x in range(cwid):
-        for y in range(clen):
+    for x in range(nx):
+        for y in range(ny):
             flow_field[x][y][2] = random.randint(0, res)
             flow_field[x][y][3] = random.randint(0, res)
 
 init_flowfield()
+ff = ti.field(dtype=ti.f32, shape=ff_shape)
+ff.from_numpy(flow_field)
 
-def step_flowfield(z:int):
+# v = (1,1)
+# v = v / np.linalg.norm(v)
+
+nsarr = np.zeros(dtype=np.float32, shape=(nx,ny))
+
+def step_noisefield(arr):
+    for x in range(nx):
+        for y in range(ny):
+            arr[x,y] = noise.snoise3(x * scalar_off, y * scalar_off, z)
+
+
+@ti.kernel
+def step_flowfield(z:ti.f32, ff:ti.ext_arr(), nsarr:ti.ext_arr()):
     t = z
-    for x in range(nx+1):
-        for y in range(ny+1):
-            ns = noise.snoise3(x * scalar_off, y * scalar_off, z)
+    for x in range(nx):
+        for y in range(ny):
+            # [0:2]: normalized delta direction of flow
+            # [2:4]: current mouse xy
+            # [4:7]: color
+            ns = nsarr[x,y]
+            # ns = 1
             radians = ns * math.tau
-            c = math.cos(radians)
-            s = math.sin(radians)
-            flow_field[x][y][0] = c
-            flow_field[x][y][1] = s
-            cx = flow_field[x][y][2]
-            cy = flow_field[x][y][3]
-            gx = cx + 2 * -c
-            gy = cy + 2 * -s
-            flow_field[x][y][2] = (gx) % res
-            flow_field[x][y][3] = (gy) % res
+            c = ti.cos(radians)
+            s = ti.sin(radians)
+            v = ti.Vector([c,s])
+            v.normalized()
+            c = v[0]
+            s = v[1]
+
+            ff[x,y,0] = -c
+            ff[x,y,1] = -s
+            cx = ff[x,y,2]
+            cy = ff[x,y,3]
+            ## these store the velocity
+            speed = 1
+            # vel
+            accel = 0.05
+            ax = (accel * c)
+            ay = (accel * s)
+            # x, y = np.linalg.norm((sx,sy))
+            ## velocity
+            minS = -3
+            maxS = 3
+            ff[x, y, 8] = min(max(ff[x, y, 8] + ax, minS), maxS)
+            ff[x, y, 9] = min(max(ff[x, y, 9] + ay, minS), maxS)
+            # ff[x, y, 8] = ff[x, y, 8] * sx
+            # ff[x, y, 9] =
+            Nx = cx + ff[x, y, 8]
+            Ny = cy + ff[x, y, 9]
+            dx = Nx - cx
+            dy = Ny - cy
+            ff[x,y,2] = Nx % res
+            ff[x,y,3] = Ny % res
+            ### Colors
+            ff[x,y,4] = ns
+            ff[x,y,5] = ns*ns
+            ff[x,y,6] = 1-ns
+            ff[x,y,7] = 0.0
+
+            # gx = cx + 2 * -c
+            #gy = cy + 2 * -s
+            # flow_field[x][y][2] = (gx) % res
+            # flow_field[x][y][3] = (gy) % res
             # flow_field[x][y][0] = c
             # flow_field[x][y][1] = s
             # flow_field[x][y][2] = (x * cwid)
             # flow_field[x][y][3] = (y * clen)
-            flow_field[x][y][4] = ns
-            flow_field[x][y][5] = ns*ns
-            flow_field[x][y][6] = 1-ns
-            flow_field[x][y][7] = 0.0
 
 
 #######
@@ -335,8 +381,8 @@ def step(mouse_data):
     velocities_pair.swap()
     dyes_pair.swap()
 
-    for x in range(nx+1):
-        for y in range(ny+1):
+    for x in range(nx):
+        for y in range(ny):
             apply_impulse(velocities_pair.cur, dyes_pair.cur, flow_field[x][y])
             pass
     # apply_impulse(velocities_pair.cur, dyes_pair.cur, mouse_data)
@@ -421,8 +467,9 @@ while gui.running:
         mouse_data = md_gen(gui)
         # print(mouse_data)
         step(mouse_data)
-        step_flowfield(z)
-        z+=0.01
+        step_noisefield(nsarr)
+        step_flowfield(z, flow_field,nsarr)
+        z+=0.005
 
     gui.set_image(dyes_pair.cur)
     # To visualize velocity field:
