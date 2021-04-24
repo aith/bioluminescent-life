@@ -1,3 +1,6 @@
+### Cellular automata and random walks based on noise fields built on top of a solid fluid sim example from taichi
+### -aith
+
 # References:
 # http://developer.download.nvidia.com/books/HTML/gpugems/gpugems_ch38.html
 # https://github.com/PavelDoGreat/WebGL-Fluid-Simulation
@@ -483,7 +486,7 @@ def reset():
 
 
 
-gui = ti.GUI('Stable Fluid', (res, res))
+gui = ti.GUI('Bioluminescence', (res, res))
 md_gen = MouseDataGen()
 z = 1
 alive = ti.field(dtype=ti.f32, shape=(res,res))
