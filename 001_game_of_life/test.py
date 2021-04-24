@@ -1,4 +1,3 @@
-
 # References:
 # http://developer.download.nvidia.com/books/HTML/gpugems/gpugems_ch38.html
 # https://github.com/PavelDoGreat/WebGL-Fluid-Simulation
@@ -9,44 +8,68 @@ import taichi as ti
 import numpy as np
 import noise
 import math
+import random
 
 
 res = 512
 
 #######
-cwid = 32
-clen = 32
+cwid = 128
+clen = 128
 nx = res // cwid
 ny = res // clen
-flow_field = np.zeros(
-    shape=(cwid,clen,8),
-    dtype=np.float32
-)
+flow_field = None
 
 scalar_off = 1
+
+def init_flowfield():
+    global flow_field
+    flow_field = np.zeros(
+        shape=(cwid, clen, 8),
+        dtype=np.float32
+    )
+    for x in range(cwid):
+        for y in range(clen):
+            flow_field[x][y][2] = random.randint(0, res)
+            flow_field[x][y][3] = random.randint(0, res)
+
+init_flowfield()
+
 def step_flowfield(z:int):
+    t = z
     for x in range(nx+1):
         for y in range(ny+1):
             ns = noise.snoise3(x * scalar_off, y * scalar_off, z)
             radians = ns * math.tau
-            flow_field[x][y][0] = math.cos(radians)
-            flow_field[x][y][1] = math.sin(radians)
-            flow_field[x][y][2] = x * cwid
-            flow_field[x][y][3] = y * clen
+            c = math.cos(radians)
+            s = math.sin(radians)
+            flow_field[x][y][0] = c
+            flow_field[x][y][1] = s
+            cx = flow_field[x][y][2]
+            cy = flow_field[x][y][3]
+            gx = cx + 2 * -c
+            gy = cy + 2 * -s
+            flow_field[x][y][2] = (gx) % res
+            flow_field[x][y][3] = (gy) % res
+            # flow_field[x][y][0] = c
+            # flow_field[x][y][1] = s
+            # flow_field[x][y][2] = (x * cwid)
+            # flow_field[x][y][3] = (y * clen)
             flow_field[x][y][4] = ns
             flow_field[x][y][5] = ns*ns
             flow_field[x][y][6] = 1-ns
             flow_field[x][y][7] = 0.0
 
+
 #######
 
 use_mgpcg = False  # True to use multigrid-preconditioned conjugate gradients
 dt = 0.03
-p_jacobi_iters = 80  # 40 for a quicker but less accurate result
+p_jacobi_iters = 40  # 40 for a quicker but less accurate result
 f_strength = 10000.0
 curl_strength = 0  # 7 for unrealistic visual enhancement
 dye_decay = 0.995
-force_radius = res / 9.0
+force_radius = res / 9
 debug = False
 paused = False
 
@@ -380,7 +403,7 @@ def reset():
 
 gui = ti.GUI('Stable Fluid', (res, res))
 md_gen = MouseDataGen()
-z = 0
+z = 1
 while gui.running:
     if gui.get_event(ti.GUI.PRESS):
         e = gui.event
