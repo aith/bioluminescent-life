@@ -14,8 +14,8 @@ import random
 res = 512
 
 #######
-cwid = 128
-clen = 128
+cwid = int(res/4)
+clen = int(res/4)
 nx = res // cwid
 ny = res // clen
 flow_field = None
@@ -97,14 +97,48 @@ def step_flowfield(z:ti.f32, ff:ti.ext_arr(), nsarr:ti.ext_arr()):
             ff[x,y,6] = 1-ns
             ff[x,y,7] = 0.0
 
-            # gx = cx + 2 * -c
-            #gy = cy + 2 * -s
-            # flow_field[x][y][2] = (gx) % res
-            # flow_field[x][y][3] = (gy) % res
-            # flow_field[x][y][0] = c
-            # flow_field[x][y][1] = s
-            # flow_field[x][y][2] = (x * cwid)
-            # flow_field[x][y][3] = (y * clen)
+
+nhood_r = 1
+@ti.kernel
+def count_alive(t:ti.f32):
+    osc = (ti.sin(t) + 1)/2 + 0.1
+    rand1 = 0
+    rand2=0
+    tattn = t/4
+    for x in range(1,res+1):
+        for y in range(1,res+1):
+            osc2 = (ti.cos(y+tattn) * ti.sin(x+tattn)+1)/2
+            osc3 = (ti.cos((y/res)+tattn) * ti.sin((x/res)+tattn)+1)/2
+            attn = 1
+            rand1+=1  # for stochastic rules to make more organic looking
+            rand2+=7
+            bit = 0
+            sum = dyes_pair.cur[x, y][0] + dyes_pair.cur[x, y][1] + dyes_pair.cur[x, y][2]
+            just_born = 0
+            n_alive = alive_old[x + 1,y] + alive_old[x - 1,y] + alive_old[x,y + 1] + alive_old[x,y - 1] + alive_old[x + 1,y+1] + alive_old[x + 1,y-1] + alive_old[x-1,y + 1] + alive_old[x-1,y - 1]
+            if (sum > 3):
+                bit = 1
+                just_born = 1
+            elif (n_alive > 5+(rand1 & 1)+(rand2 & 1)):  # do game of life
+                # if n_alive < 7:
+                #     attn = 0.3
+                bit = 1
+            alive[x,y] = bit
+            plankton_dyes[x, y][0] = (bit * 4 * osc * attn + just_born * 0.1 * osc) * osc2 * osc3
+            plankton_dyes[x, y][1] = (bit * 10 * osc * attn+ just_born * 0.5 * osc) * osc2 * osc3
+            plankton_dyes[x, y][2] = (bit * 4 * osc * attn + just_born * 0.1 * osc) * osc2 * osc3
+
+            # pass
+            # check_alive(x,y,alive,alive_copy)
+
+
+@ti.kernel
+def add_to_plankton():
+    for x in range(res):
+        for y in range(res):
+            plankton_dyes[x, y][0] += dyes_pair.cur[x,y][0]
+            plankton_dyes[x, y][1] += dyes_pair.cur[x,y][1]
+            plankton_dyes[x, y][2] += dyes_pair.cur[x,y][2]
 
 
 #######
@@ -142,8 +176,9 @@ class TexPair:
         self.cur = cur
         self.nxt = nxt
 
-    def swap(self):
+    def swap(self, t=False):
         self.cur, self.nxt = self.nxt, self.cur
+
 
 
 velocities_pair = TexPair(_velocities, _new_velocities)
@@ -379,7 +414,7 @@ def step(mouse_data):
     advect(velocities_pair.cur, dyes_pair.cur, dyes_pair.nxt,
            _intermedia_dye_buffer)
     velocities_pair.swap()
-    dyes_pair.swap()
+    dyes_pair.swap(True)
 
     for x in range(nx):
         for y in range(ny):
@@ -447,9 +482,14 @@ def reset():
     dyes_pair.cur.fill(0)
 
 
+
 gui = ti.GUI('Stable Fluid', (res, res))
 md_gen = MouseDataGen()
 z = 1
+alive = ti.field(dtype=ti.f32, shape=(res,res))
+alive_old = ti.field(dtype=ti.f32, shape=(res,res))
+plankton_dyes = ti.Vector.field(3, float, shape=(res, res))
+t = 0
 while gui.running:
     if gui.get_event(ti.GUI.PRESS):
         e = gui.event
@@ -467,11 +507,16 @@ while gui.running:
         mouse_data = md_gen(gui)
         # print(mouse_data)
         step(mouse_data)
+        t+=0.05
+        count_alive(t)
+        alive_old.copy_from(alive)
         step_noisefield(nsarr)
         step_flowfield(z, flow_field,nsarr)
         z+=0.005
+        add_to_plankton()
 
-    gui.set_image(dyes_pair.cur)
+
+    gui.set_image(plankton_dyes)
     # To visualize velocity field:
     # gui.set_image(velocities_pair.cur.to_numpy() * 0.01 + 0.5)
     # To visualize velocity divergence:
